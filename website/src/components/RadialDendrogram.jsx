@@ -50,18 +50,54 @@ export default function RadialDendrogram({ data, onNodeClick, width = 900, heigh
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
 
-    const vbSize = 2000;
+    const vbSize = 2400;
     svg.attr("viewBox", `0 0 ${vbSize} ${vbSize}`);
 
-    const radius = vbSize / 2 - 200;
+    const radius = vbSize / 2 - 280;
 
     const root = d3.hierarchy(data);
 
     const cluster = d3.cluster()
       .size([360, radius])
-      .separation((a, b) => (a.parent === b.parent ? 1 : 2.5) / a.depth);
+      .separation((a, b) => a.parent === b.parent ? 1 : 2);
 
     cluster(root);
+
+    // Fix mixed-depth siblings: d3.cluster pushes leaves to the outermost ring,
+    // so when a parent has both leaf children and children-with-children at the
+    // same depth, they end up at different radial distances. Pull leaf siblings
+    // in to match their internal siblings so they sit on the same circle.
+    root.descendants().forEach(node => {
+      if (!node.children || node.children.length < 2) return;
+      const internalChildren = node.children.filter(c => c.children);
+      const leafChildren = node.children.filter(c => !c.children);
+      if (internalChildren.length > 0 && leafChildren.length > 0) {
+        const targetY = internalChildren[0].y;
+        leafChildren.forEach(c => { c.y = targetY; });
+      }
+    });
+
+    // Equal angular space for each top-level section
+    if (root.children) {
+      const n = root.children.length;
+      const segment = 360 / n;
+
+      root.children.forEach((child, i) => {
+        const targetCenter = i * segment + segment / 2;
+        const desc = child.descendants();
+        const angles = desc.map(d => d.x);
+        const lo = Math.min(...angles);
+        const hi = Math.max(...angles);
+        const span = hi - lo;
+        const center = (lo + hi) / 2;
+        const targetSpan = segment * 0.82;
+        const scale = span > 0 ? targetSpan / span : 1;
+
+        desc.forEach(d => {
+          d.x = targetCenter + (d.x - center) * scale;
+        });
+      });
+    }
 
     const defs = svg.append("defs");
 
@@ -183,10 +219,10 @@ export default function RadialDendrogram({ data, onNodeClick, width = 900, heigh
     nodeGroup.filter(d => d.depth === 1)
       .append("circle")
       .attr("r", 7)
-      .attr("fill", d => getCategoryColor(d))
+      .attr("fill", d => `${getCategoryColor(d)}18`)
       .attr("stroke", d => getCategoryColor(d))
-      .attr("stroke-width", 2)
-      .attr("stroke-opacity", 0.5)
+      .attr("stroke-width", 2.5)
+      .attr("stroke-opacity", 0.85)
       .attr("filter", "url(#ring-glow-d)");
 
     // Subcategory nodes (depth 2)
@@ -272,7 +308,7 @@ export default function RadialDendrogram({ data, onNodeClick, width = 900, heigh
         d3.select(this).select("circle")
           .transition().duration(150)
           .attr("r", d.depth === 1 ? 10 : d.depth === 2 ? 7 : 6)
-          .attr("fill", color)
+          .attr("fill", d.depth === 1 ? `${color}30` : color)
           .attr("fill-opacity", 1)
           .attr("filter", "url(#node-glow-d)");
 
@@ -343,7 +379,7 @@ export default function RadialDendrogram({ data, onNodeClick, width = 900, heigh
         d3.select(this).select("circle")
           .transition().duration(300)
           .attr("r", d.depth === 1 ? 7 : d.depth === 2 ? 5 : 3.5)
-          .attr("fill", color)
+          .attr("fill", d.depth === 1 ? `${getCategoryColor(d)}18` : color)
           .attr("fill-opacity", d.depth === 1 ? 1 : d.depth === 2 ? 0.7 : 0.55)
           .attr("filter", d.depth === 1 ? "url(#ring-glow-d)" : null);
 
